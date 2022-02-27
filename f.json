@@ -1,0 +1,6 @@
+{
+  "Access rules": [
+    {"idpatient": 1, "resource": "A", "Action": "read"},
+    {"idpatient": 2, "resource": "A", "Action": "read"},
+    {"idpatient": 1, "resource": "A", "Action": "write"}
+  ], }
