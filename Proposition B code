@@ -1,0 +1,149 @@
+pragma solidity ^0.8.7;
+
+contract AccessControl{
+address public owner;
+address public subject;
+
+event ReturnAccessResult( address indexed _from, string _errmsg, uint _penalty, bool _result, uint time);
+
+struct registration {
+    uint id;
+    bool isValued;
+}
+ struct PolicyItem{ //for one (resource, action) pair;
+ bool isValued; //for duplicate check
+ string permission; //permission: "allow" or "deny"
+ uint minInt; //minimum allowable interval (in seconds) between two successive requests
+ uint ToLR; //Time of Last Request
+ uint NoFR; //Number of frequent Requests in a short period of time
+ uint Limit; //Limit on NoFR, above which a misbehavior is suspected
+
+ }
+ 
+ struct Misconduct{
+//string resource ; //resource on which the misbehavior is conducted
+ string action; //action (e.g., "read", "write", "execute") of the misbehavior
+ uint timeoM; //time of the misbehavior occured
+ uint penalty; //penalty opposed to the subject (number of minutes blocked)
+ }
+ struct MisconductList{ //for one resource
+ Misconduct [] mbs; //misbehavior list of the subject on a particular resource
+uint TimeofUnblock; //time when the resource is unblocked (0 if unblocked; otherwise, blocked)
+}
+ 
+
+  mapping(string =>mapping(string => PolicyItem)) SubjectPolicies; //mapping (adress, resource, action) => for policy check
+ mapping (string  => MisconductList) RessourceMisconductList; //for Misconduct check
+ mapping(address => registration ) SubjectRegistration; // for registration check
+
+ constructor(address _subject) {
+        owner = msg.sender;
+        subject = _subject;
+        
+        
+ }
+     
+     
+function policyAdd(string memory _resource, string memory _action, string memory _permission, uint _minInt, uint _Limit) public{
+require (msg.sender == owner);
+require (SubjectPolicies[_resource][_action].isValued == false); //duplicated key
+SubjectPolicies[_resource][_action].permission= _permission;
+SubjectPolicies[_resource][_action].minInt= _minInt;
+SubjectPolicies[_resource][_action].Limit= _Limit;
+SubjectPolicies[_resource][_action].ToLR= 0;
+SubjectPolicies[_resource][_action].NoFR=0;
+SubjectPolicies[_resource][_action].isValued= true;
+
+ }
+ 
+function getPolicy( string memory _resource, string memory _action) public view returns (string memory _permission, uint _minInt, uint _Limit, uint _ToLR, uint _NoFR){
+require (SubjectPolicies[_resource][_action].isValued == true); 
+ _permission = SubjectPolicies[_resource][_action].permission;
+ _minInt = SubjectPolicies[_resource][_action].minInt;
+ _Limit = SubjectPolicies[_resource][_action].Limit;
+ _NoFR = SubjectPolicies[_resource][_action].NoFR;
+ _ToLR = SubjectPolicies[_resource][_action].ToLR;
+ 
+
+ }   
+ function policyUpdate(string memory _resource, string memory _action, string memory _newPermission, uint _newminInt, uint _newLimit) public{
+require (SubjectPolicies[_resource][_action].isValued == true); 
+SubjectPolicies[_resource][_action].permission = _newPermission;
+SubjectPolicies[_resource][_action].minInt= _newminInt;
+SubjectPolicies[_resource][_action].Limit = _newLimit;
+ }  
+ function policyDelete(string memory _resource, string memory _action) public{
+require (msg.sender == owner);
+require (SubjectPolicies[_resource][_action].isValued == true); 
+delete SubjectPolicies[_resource][_action];
+ }
+ 
+ function registrationAdd (uint _id) public {
+ SubjectRegistration[subject].id= _id;
+  SubjectRegistration[subject].isValued= true;
+ }
+ 
+ 
+
+function accessControl( string memory _resource, string memory _action, uint _time) public {
+
+uint8 errcode = 0;
+uint penalty = 0;
+uint s;
+
+if (SubjectRegistration[subject].isValued== false){//not registrated state
+    errcode=1;
+    
+   }
+   
+else {// registrated state
+    if (RessourceMisconductList[_resource].TimeofUnblock > _time){//still blocked state
+        errcode=2;
+       
+       
+    } 
+    else{//unblocked state
+    RessourceMisconductList[_resource].TimeofUnblock=0;
+   
+    
+        if (keccak256(bytes(SubjectPolicies[_resource][_action].permission)) != (keccak256(bytes("allow")))){ //policycheck = false
+            errcode=3;
+              
+        }
+        else {//policycheck = true
+            if ((_time - SubjectPolicies[_resource][_action].ToLR)<= (SubjectPolicies[_resource][_action].minInt)){ //frequent access
+                SubjectPolicies[_resource][_action].NoFR++;
+            
+                if (SubjectPolicies[_resource][_action].NoFR>= SubjectPolicies[_resource][_action].Limit){
+                //s= (SubjectPolicies[_subject][_resource][_action].NoFR - SubjectPolicies[_subject][_resource][_action].Limit) +1;
+                s= RessourceMisconductList[_resource].mbs.length +1;
+                penalty= s * 30;
+       RessourceMisconductList[_resource].TimeofUnblock= _time + penalty  * 1 seconds;
+               RessourceMisconductList[_resource].mbs.push(Misconduct(_action, _time, penalty));
+                    errcode=4;
+                    
+        
+                }
+               
+            }
+            
+          else {
+        
+             SubjectPolicies[_resource][_action].NoFR=0;
+            
+             
+          }  
+        }
+    }
+}
+SubjectPolicies[_resource][_action].ToLR=_time;
+if(0 == errcode) emit ReturnAccessResult(msg.sender, "Access authorized!", penalty, true, _time);
+if(1 == errcode) emit ReturnAccessResult(msg.sender, "Validation failure! Invalid Requester", penalty, false, _time);
+if(2 == errcode) emit ReturnAccessResult(msg.sender, "Requests are still blocked!", penalty, false, _time);
+if(3 == errcode) emit ReturnAccessResult(msg.sender, "Static Check failed!!",  penalty, false, _time);
+if(4 == errcode) emit ReturnAccessResult(msg.sender, "Misbehavior detected! too frequent access", penalty, false, _time);
+
+ }
+
+     
+ }
